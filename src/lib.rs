@@ -31,6 +31,12 @@ pub struct TrieRouterRecognizer<T> {
     wildcard: Option<Box<TrieRouterRecognizer<T>>>,
 }
 
+#[derive(Eq, PartialEq, Debug)]
+pub enum Param {
+    Str(String),
+    Int(i64)
+}
+
 impl<T> TrieRouterRecognizer<T> {
     pub fn new() -> TrieRouterRecognizer<T> {
         TrieRouterRecognizer {
@@ -46,7 +52,7 @@ impl<T> TrieRouterRecognizer<T> {
         self.add_internal(path, value);
     }
 
-    pub fn recognize<'a>(&'a self, path: &str) -> Option<(&'a T, Vec<(String, String)>)> {
+    pub fn recognize<'a>(&'a self, path: &str) -> Option<(&'a T, Vec<(String, Param)>)> {
         if path == "" || path == "/" {
             return self.data.as_ref().map(|&RouteData{value: ref v, ..}| (v, vec![]));
         }
@@ -55,7 +61,7 @@ impl<T> TrieRouterRecognizer<T> {
         self.recognize_internal(path, vec![])
     }
 
-    fn recognize_internal<'a, 'b, I>(&'a self, mut path: I, mut params: Vec<(String, String)>) -> Option<(&'a T, Vec<(String, String)>)>
+    fn recognize_internal<'a, 'b, I>(&'a self, mut path: I, mut params: Vec<(String, Param)>) -> Option<(&'a T, Vec<(String, Param)>)>
         where I: ::std::iter::Iterator<Item = &'b str> + Clone
     {
         match path.next() {
@@ -80,7 +86,7 @@ impl<T> TrieRouterRecognizer<T> {
                         let res = child_trie
                                     .recognize_internal(
                                         path.clone(),
-                                        vec![(k.to_string(), part.to_string())]);
+                                        vec![(k.to_string(), Param::Str(part.to_string()))]);
                         match res {
                             Some((v, child_params)) => {
                                 params.extend(child_params);
@@ -90,7 +96,7 @@ impl<T> TrieRouterRecognizer<T> {
                         }
                     }
                 } else if let Some((k, child_trie)) = self.params.iter().next() {
-                    params.push((k.to_string(), part.to_string()));
+                    params.push((k.to_string(), Param::Str(part.to_string())));
                     return child_trie.recognize_internal(path, params);
                 }
 
@@ -188,10 +194,10 @@ fn params() {
 
     assert_eq!(
         router.recognize("/foo/11").unwrap(),
-        (&1, vec![("bar".into(), "11".into())]));
+        (&1, vec![("bar".into(), Param::Str("11".into()))]));
     assert_eq!(
         router.recognize("/foo/21/rall/22").unwrap(),
-        (&2, vec![("bar".into(), "21".into()), ("snall".into(), "22".into())]));
+        (&2, vec![("bar".into(), Param::Str("21".into())), ("snall".into(), Param::Str("22".into()))]));
 }
 
 #[test]
@@ -204,16 +210,16 @@ fn multiple_params_on_same_depth() {
 
     assert_eq!(
         router.recognize("/foo/11/first").unwrap(),
-        (&1, vec![("foo1".into(), "11".into())]));
+        (&1, vec![("foo1".into(), Param::Str("11".into()))]));
     assert_eq!(
         router.recognize("/foo/21/second").unwrap(),
-        (&2, vec![("foo2".into(), "21".into())]));
+        (&2, vec![("foo2".into(), Param::Str("21".into()))]));
     assert_eq!(
         router.recognize("/foo/31/second/32/third").unwrap(),
-        (&3, vec![("foo3".into(), "31".into()), ("bar1".into(), "32".into())]));
+        (&3, vec![("foo3".into(), Param::Str("31".into())), ("bar1".into(), Param::Str("32".into()))]));
     assert_eq!(
         router.recognize("/foo/41/second/42/forth").unwrap(),
-        (&4, vec![("foo4".into(), "41".into()), ("bar2".into(), "42".into())]));
+        (&4, vec![("foo4".into(), Param::Str("41".into())), ("bar2".into(), Param::Str("42".into()))]));
 }
 
 #[test]
@@ -224,7 +230,7 @@ fn multiple_params_with_same_name() {
 
     assert_eq!(
         router.recognize("/foo/11/bar/12").unwrap(),
-        (&1, vec![("foo".into(), "11".into()), ("foo".into(), "12".into())]));
+        (&1, vec![("foo".into(), Param::Str("11".into())), ("foo".into(), Param::Str("12".into()))]));
 }
 
 #[test]
@@ -248,5 +254,5 @@ fn literal_before_params() {
         (&1, vec![]));
     assert_eq!(
         router.recognize("/foo/21").unwrap(),
-        (&2, vec![("param".into(), "21".into())]));
+        (&2, vec![("param".into(), Param::Str("21".into()))]));
 }
