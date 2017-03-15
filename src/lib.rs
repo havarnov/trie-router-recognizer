@@ -295,10 +295,14 @@ fn multiple_params_with_same_name() {
 fn wildcard() {
     let mut router = TrieRouterRecognizer::new();
     router.add("/foo/*", 1);
+    router.add("/foo/*/bar", 2);
 
     assert_eq!(
         router.recognize("/foo/11").unwrap(),
         (&1, vec![]));
+    assert_eq!(
+        router.recognize("/foo/11/bar").unwrap(),
+        (&2, vec![]));
 }
 
 #[test]
