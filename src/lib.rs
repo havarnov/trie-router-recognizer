@@ -97,50 +97,38 @@ impl<T> TrieRouterRecognizer<T> {
                     return child_trie.recognize_internal(path, params);
                 }
 
-                if self.int_params.len() > 1 {
-                    let mut p = self.int_params.iter();
-                    while let Some((k, child_trie)) = p.next() {
-                        let i: Result<i64, _> = part.parse();
-                        if let Err(_) = i {
-                            continue;
-                        }
-                        let res = child_trie
-                                    .recognize_internal(
-                                        path.clone(),
-                                        vec![(k.to_string(), Param::Int(i.unwrap()))]);
-                        match res {
-                            Some((v, child_params)) => {
-                                params.extend(child_params);
-                                return Some((v, params));
-                            },
-                            None => continue
-                        }
+                let mut p = self.int_params.iter();
+                while let Some((k, child_trie)) = p.next() {
+                    let i: Result<i64, _> = part.parse();
+                    if let Err(_) = i {
+                        continue;
                     }
-                } else if let Some((k, child_trie)) = self.int_params.iter().next() {
-                    if let Ok(i) = part.parse() {
-                        params.push((k.to_string(), Param::Int(i)));
-                        return child_trie.recognize_internal(path, params);
+                    let res = child_trie
+                                .recognize_internal(
+                                    path.clone(),
+                                    vec![(k.to_string(), Param::Int(i.unwrap()))]);
+                    match res {
+                        Some((v, child_params)) => {
+                            params.extend(child_params);
+                            return Some((v, params));
+                        },
+                        None => continue
                     }
                 }
 
-                if self.params.len() > 1 {
-                    let mut p = self.params.iter();
-                    while let Some((k, child_trie)) = p.next() {
-                        let res = child_trie
-                                    .recognize_internal(
-                                        path.clone(),
-                                        vec![(k.to_string(), Param::Str(part.to_string()))]);
-                        match res {
-                            Some((v, child_params)) => {
-                                params.extend(child_params);
-                                return Some((v, params));
-                            },
-                            None => continue
-                        }
+                let mut p = self.params.iter();
+                while let Some((k, child_trie)) = p.next() {
+                    let res = child_trie
+                                .recognize_internal(
+                                    path.clone(),
+                                    vec![(k.to_string(), Param::Str(part.to_string()))]);
+                    match res {
+                        Some((v, child_params)) => {
+                            params.extend(child_params);
+                            return Some((v, params));
+                        },
+                        None => continue
                     }
-                } else if let Some((k, child_trie)) = self.params.iter().next() {
-                    params.push((k.to_string(), Param::Str(part.to_string())));
-                    return child_trie.recognize_internal(path, params);
                 }
 
                 if let Some(ref child_trie) = self.wildcard {
