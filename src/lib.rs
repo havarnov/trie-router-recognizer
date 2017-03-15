@@ -4,12 +4,27 @@ use std::collections::HashMap;
 enum Key {
     Literal(String),
     Param(String),
+    IntParam(String),
     Wildcard
 }
 
 fn to_key(s: &str) -> Key {
     if s.starts_with("<") {
-        Key::Param(s.chars().skip(1).take_while(|c| c != &'>').collect())
+        let i: String = s.chars().skip(1).take_while(|c| c != &'>').collect();
+        let sp: Vec<&str> = i.split(":").collect();
+        if sp.len() == 1 {
+            return Key::Param(sp[0].into());
+        } else if sp.len() == 2 {
+            match sp[1] {
+                "int" => {
+                    return Key::IntParam(sp[0].into());
+                },
+                _ => panic!("what -- see below..,")
+            }
+        } else {
+            panic!("what to do. must return Result");
+        }
+        // Key::Param(s.chars().skip(1).take_while(|c| c != &'>').collect())
     } else if s == "*" {
         Key::Wildcard
     } else {
@@ -27,6 +42,7 @@ struct RouteData<T> {
 pub struct TrieRouterRecognizer<T> {
     data: Option<RouteData<T>>,
     literals: HashMap<String, TrieRouterRecognizer<T>>,
+    int_params: HashMap<String, TrieRouterRecognizer<T>>,
     params: HashMap<String, TrieRouterRecognizer<T>>,
     wildcard: Option<Box<TrieRouterRecognizer<T>>>,
 }
@@ -42,6 +58,7 @@ impl<T> TrieRouterRecognizer<T> {
         TrieRouterRecognizer {
             data: None,
             literals: HashMap::new(),
+            int_params: HashMap::new(),
             params: HashMap::new(),
             wildcard: None
         }
@@ -78,6 +95,32 @@ impl<T> TrieRouterRecognizer<T> {
             Some(part) => {
                 if let Some((_, child_trie)) = self.literals.iter().find(|&(k, _)| k == part) {
                     return child_trie.recognize_internal(path, params);
+                }
+
+                if self.int_params.len() > 1 {
+                    let mut p = self.int_params.iter();
+                    while let Some((k, child_trie)) = p.next() {
+                        let i: Result<i64, _> = part.parse();
+                        if let Err(_) = i {
+                            continue;
+                        }
+                        let res = child_trie
+                                    .recognize_internal(
+                                        path.clone(),
+                                        vec![(k.to_string(), Param::Int(i.unwrap()))]);
+                        match res {
+                            Some((v, child_params)) => {
+                                params.extend(child_params);
+                                return Some((v, params));
+                            },
+                            None => continue
+                        }
+                    }
+                } else if let Some((k, child_trie)) = self.int_params.iter().next() {
+                    if let Ok(i) = part.parse() {
+                        params.push((k.to_string(), Param::Int(i)));
+                        return child_trie.recognize_internal(path, params);
+                    }
                 }
 
                 if self.params.len() > 1 {
@@ -135,6 +178,11 @@ impl<T> TrieRouterRecognizer<T> {
                             .add_internal(path, value),
                     Key::Param(param) =>
                         self.params
+                            .entry(param)
+                            .or_insert(TrieRouterRecognizer::new())
+                            .add_internal(path, value),
+                    Key::IntParam(param) =>
+                        self.int_params
                             .entry(param)
                             .or_insert(TrieRouterRecognizer::new())
                             .add_internal(path, value),
@@ -198,6 +246,16 @@ fn params() {
     assert_eq!(
         router.recognize("/foo/21/rall/22").unwrap(),
         (&2, vec![("bar".into(), Param::Str("21".into())), ("snall".into(), Param::Str("22".into()))]));
+}
+
+#[test]
+fn int_params() {
+    let mut router = TrieRouterRecognizer::new();
+    router.add("/foo/<bar:int>", 1);
+
+    assert_eq!(
+        router.recognize("/foo/11").unwrap(),
+        (&1, vec![("bar".into(), Param::Int(11))]));
 }
 
 #[test]
