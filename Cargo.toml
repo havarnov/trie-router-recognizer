@@ -1,0 +1,6 @@
+[package]
+name = "trie-router-recognizer"
+version = "0.1.0"
+authors = ["havar"]
+
+[dependencies]
