@@ -208,6 +208,17 @@ fn multiple_params_on_same_depth() {
 }
 
 #[test]
+fn multiple_params_with_same_name() {
+    // test to highlight a problem with returning params as map over param name.
+    let mut router = TrieRouterRecognizer::new();
+    router.add("/foo/:foo/bar/:foo", 1);
+
+    assert_eq!(
+        router.recognize("/foo/11/bar/12").unwrap(),
+        (&1, vec![("foo".into(), "11".into()), ("foo".into(), "12".into())]));
+}
+
+#[test]
 fn wildcard() {
     let mut router = TrieRouterRecognizer::new();
     router.add("/foo/*", 1);
