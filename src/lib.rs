@@ -26,8 +26,8 @@ struct RouteData<T> {
 #[derive(Debug)]
 pub struct TrieRouterRecognizer<T> {
     data: Option<RouteData<T>>,
-    literals: HashMap<String, Box<TrieRouterRecognizer<T>>>,
-    params: HashMap<String, Box<TrieRouterRecognizer<T>>>,
+    literals: HashMap<String, TrieRouterRecognizer<T>>,
+    params: HashMap<String, TrieRouterRecognizer<T>>,
     wildcard: Option<Box<TrieRouterRecognizer<T>>>,
 }
 
@@ -125,12 +125,12 @@ impl<T> TrieRouterRecognizer<T> {
                     Key::Literal(literal) =>
                         self.literals
                             .entry(literal)
-                            .or_insert(Box::new(TrieRouterRecognizer::new()))
+                            .or_insert(TrieRouterRecognizer::new())
                             .add_internal(path, value),
                     Key::Param(param) =>
                         self.params
                             .entry(param)
-                            .or_insert(Box::new(TrieRouterRecognizer::new()))
+                            .or_insert(TrieRouterRecognizer::new())
                             .add_internal(path, value),
                     Key::Wildcard => {
                         if self.wildcard.is_none() {
