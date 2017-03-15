@@ -8,8 +8,8 @@ enum Key {
 }
 
 fn to_key(s: &str) -> Key {
-    if s.starts_with(":") {
-        Key::Param(s.chars().skip(1).collect())
+    if s.starts_with("<") {
+        Key::Param(s.chars().skip(1).take_while(|c| c != &'>').collect())
     } else if s == "*" {
         Key::Wildcard
     } else {
@@ -183,8 +183,8 @@ fn trailing_nontrailing() {
 #[test]
 fn params() {
     let mut router = TrieRouterRecognizer::new();
-    router.add("/foo/:bar", 1);
-    router.add("/foo/:bar/rall/:snall", 2);
+    router.add("/foo/<bar>", 1);
+    router.add("/foo/<bar>/rall/<snall>", 2);
 
     assert_eq!(
         router.recognize("/foo/11").unwrap(),
@@ -197,10 +197,10 @@ fn params() {
 #[test]
 fn multiple_params_on_same_depth() {
     let mut router = TrieRouterRecognizer::new();
-    router.add("/foo/:foo1/first", 1);
-    router.add("/foo/:foo2/second", 2);
-    router.add("/foo/:foo3/second/:bar1/third", 3);
-    router.add("/foo/:foo4/second/:bar2/forth", 4);
+    router.add("/foo/<foo1>/first", 1);
+    router.add("/foo/<foo2>/second", 2);
+    router.add("/foo/<foo3>/second/<bar1>/third", 3);
+    router.add("/foo/<foo4>/second/<bar2>/forth", 4);
 
     assert_eq!(
         router.recognize("/foo/11/first").unwrap(),
@@ -220,7 +220,7 @@ fn multiple_params_on_same_depth() {
 fn multiple_params_with_same_name() {
     // test to highlight a problem with returning params as map over param name.
     let mut router = TrieRouterRecognizer::new();
-    router.add("/foo/:foo/bar/:foo", 1);
+    router.add("/foo/<foo>/bar/<foo>", 1);
 
     assert_eq!(
         router.recognize("/foo/11/bar/12").unwrap(),
@@ -241,7 +241,7 @@ fn wildcard() {
 fn literal_before_params() {
     let mut router = TrieRouterRecognizer::new();
     router.add("/foo/literal", 1);
-    router.add("/foo/:param", 2);
+    router.add("/foo/<param>", 2);
 
     assert_eq!(
         router.recognize("/foo/literal").unwrap(),
