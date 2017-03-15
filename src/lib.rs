@@ -18,9 +18,14 @@ fn to_key(s: &str) -> Key {
 }
 
 #[derive(Debug)]
+struct RouteData<T> {
+    value: T,
+    trailing: bool
+}
+
+#[derive(Debug)]
 pub struct TrieRouterRecognizer<T> {
-    value: Option<T>,
-    trailing: bool,
+    data: Option<RouteData<T>>,
     literals: HashMap<String, Box<TrieRouterRecognizer<T>>>,
     params: HashMap<String, Box<TrieRouterRecognizer<T>>>,
     wildcard: Option<Box<TrieRouterRecognizer<T>>>,
@@ -29,8 +34,7 @@ pub struct TrieRouterRecognizer<T> {
 impl<T> TrieRouterRecognizer<T> {
     pub fn new() -> TrieRouterRecognizer<T> {
         TrieRouterRecognizer {
-            value: None,
-            trailing: false,
+            data: None,
             literals: HashMap::new(),
             params: HashMap::new(),
             wildcard: None
@@ -44,7 +48,7 @@ impl<T> TrieRouterRecognizer<T> {
 
     pub fn recognize<'a>(&'a self, path: &str) -> Option<(&'a T, Vec<(String, String)>)> {
         if path == "" || path == "/" {
-            return self.value.as_ref().map(|v| (v, vec![]))
+            return self.data.as_ref().map(|&RouteData{value: ref v, ..}| (v, vec![]));
         }
 
         let path = path.split("/").skip(1).into_iter();
@@ -56,14 +60,14 @@ impl<T> TrieRouterRecognizer<T> {
     {
         match path.next() {
             Some("") => {
-                if self.trailing {
-                    self.value.as_ref().map(|v| (v, params))
+                if let Some(RouteData{trailing: true, ..}) = self.data {
+                    self.data.as_ref().map(|&RouteData{value: ref v, ..}| (v, params))
                 } else {
                     None
                 }
             },
             None => {
-                self.value.as_ref().map(|v| (v, params))
+                self.data.as_ref().map(|&RouteData{value: ref v, ..}| (v, params))
             },
             Some(part) => {
                 if let Some((_, child_trie)) = self.literals.iter().find(|&(k, _)| k == part) {
@@ -104,11 +108,16 @@ impl<T> TrieRouterRecognizer<T> {
     {
         match path.next() {
             Some("") => {
-                self.trailing = true;
-                self.value = Some(value);
+                self.data = Some(RouteData {
+                    value: value,
+                    trailing: true,
+                });
             },
             None => {
-                self.value = Some(value);
+                self.data = Some(RouteData {
+                    value: value,
+                    trailing: false,
+                });
             },
             Some(part) => {
 
