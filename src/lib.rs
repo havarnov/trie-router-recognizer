@@ -8,27 +8,26 @@ enum Key {
     Wildcard
 }
 
-fn to_key(s: &str) -> Key {
+fn to_key(s: &str) -> Result<Key, String> {
     if s.starts_with("<") {
         let i: String = s.chars().skip(1).take_while(|c| c != &'>').collect();
         let sp: Vec<&str> = i.split(":").collect();
         if sp.len() == 1 {
-            return Key::Param(sp[0].into());
+            return Ok(Key::Param(sp[0].into()));
         } else if sp.len() == 2 {
             match sp[1] {
                 "int" => {
-                    return Key::IntParam(sp[0].into());
+                    return Ok(Key::IntParam(sp[0].into()));
                 },
-                _ => panic!("what -- see below..,")
+                unknown_type => return Err(format!("Unkown type: {0}.", unknown_type))
             }
         } else {
-            panic!("what to do. must return Result");
+            return Err("Syntax error on path part.".into());
         }
-        // Key::Param(s.chars().skip(1).take_while(|c| c != &'>').collect())
     } else if s == "*" {
-        Key::Wildcard
+        Ok(Key::Wildcard)
     } else {
-        Key::Literal(s.into())
+        Ok(Key::Literal(s.into()))
     }
 }
 
@@ -39,35 +38,22 @@ struct RouteData<T> {
 }
 
 #[derive(Debug)]
-pub struct TrieRouterRecognizer<T> {
+pub struct TrieRouterRecognizerBuilder<T> {
     data: Option<RouteData<T>>,
-    literals: HashMap<String, TrieRouterRecognizer<T>>,
-    int_params: HashMap<String, TrieRouterRecognizer<T>>,
-    params: HashMap<String, TrieRouterRecognizer<T>>,
-    wildcard: Option<Box<TrieRouterRecognizer<T>>>,
+    literals: HashMap<String, TrieRouterRecognizerBuilder<T>>,
+    int_params: HashMap<String, TrieRouterRecognizerBuilder<T>>,
+    params: HashMap<String, TrieRouterRecognizerBuilder<T>>,
+    wildcard: Option<Box<TrieRouterRecognizerBuilder<T>>>,
 }
 
-#[derive(Eq, PartialEq, Debug)]
-pub enum Param {
-    Str(String),
-    Int(i64)
+#[derive(Debug)]
+pub struct TrieRouterRecognizer<T>
+{
+    data: Option<RouteData<T>>,
+    children: Vec<(Key, TrieRouterRecognizer<T>)>
 }
 
 impl<T> TrieRouterRecognizer<T> {
-    pub fn new() -> TrieRouterRecognizer<T> {
-        TrieRouterRecognizer {
-            data: None,
-            literals: HashMap::new(),
-            int_params: HashMap::new(),
-            params: HashMap::new(),
-            wildcard: None
-        }
-    }
-
-    pub fn add(&mut self, path: &str, value: T) {
-        let path = path.split("/").skip(1).into_iter();
-        self.add_internal(path, value);
-    }
 
     pub fn recognize<'a>(&'a self, path: &str) -> Option<(&'a T, Vec<(String, Param)>)> {
         if path == "" || path == "/" {
@@ -93,54 +79,119 @@ impl<T> TrieRouterRecognizer<T> {
                 self.data.as_ref().map(|&RouteData{value: ref v, ..}| (v, params))
             },
             Some(part) => {
-                if let Some((_, child_trie)) = self.literals.iter().find(|&(k, _)| k == part) {
-                    return child_trie.recognize_internal(path, params);
-                }
 
-                let mut p = self.int_params.iter();
-                while let Some((k, child_trie)) = p.next() {
-                    let i: Result<i64, _> = part.parse();
-                    if let Err(_) = i {
-                        continue;
-                    }
-                    let res = child_trie
-                                .recognize_internal(
-                                    path.clone(),
-                                    vec![(k.to_string(), Param::Int(i.unwrap()))]);
-                    match res {
-                        Some((v, child_params)) => {
-                            params.extend(child_params);
-                            return Some((v, params));
+                for &(ref key, ref child_trie) in self.children.iter() {
+                    match *key {
+                        Key::Literal(ref literal) if literal == part => {
+                            return child_trie.recognize_internal(path, params);
                         },
-                        None => continue
-                    }
-                }
-
-                let mut p = self.params.iter();
-                while let Some((k, child_trie)) = p.next() {
-                    let res = child_trie
-                                .recognize_internal(
-                                    path.clone(),
-                                    vec![(k.to_string(), Param::Str(part.to_string()))]);
-                    match res {
-                        Some((v, child_params)) => {
-                            params.extend(child_params);
-                            return Some((v, params));
+                        Key::IntParam(ref int_param) => {
+                            let i: Result<i64, _> = part.parse();
+                            if let Err(_) = i {
+                                continue;
+                            }
+                            let res = child_trie
+                                        .recognize_internal(
+                                            path.clone(),
+                                            vec![(int_param.to_string(), Param::Int(i.unwrap()))]);
+                            match res {
+                                Some((v, child_params)) => {
+                                    params.extend(child_params);
+                                    return Some((v, params));
+                                },
+                                None => continue
+                            }
                         },
-                        None => continue
+                        Key::Param(ref param) => {
+                            let res = child_trie
+                                        .recognize_internal(
+                                            path.clone(),
+                                            vec![(param.to_string(), Param::Str(part.to_string()))]);
+                            match res {
+                                Some((v, child_params)) => {
+                                    params.extend(child_params);
+                                    return Some((v, params));
+                                },
+                                None => continue
+                            }
+                        },
+                        Key::Wildcard => {
+                            return child_trie.recognize_internal(path, params);
+                        },
+                        Key::Literal(_) => continue
                     }
-                }
-
-                if let Some(ref child_trie) = self.wildcard {
-                    return child_trie.recognize_internal(path, params);
                 }
 
                 None
             }
         }
     }
+}
 
-    fn add_internal<'a, I>(&'a mut self, mut path: I, value: T)
+#[derive(Eq, PartialEq, Debug)]
+pub enum Param {
+    Str(String),
+    Int(i64)
+}
+
+impl<T> TrieRouterRecognizerBuilder<T> {
+
+    pub fn build(self) -> Result<TrieRouterRecognizer<T>, String>
+    {
+        let mut literals =
+            self.literals
+                .into_iter()
+                .map(|(k, v)| (v.build().map(|v| (Key::Literal(k), v))))
+                .collect::<Result<Vec<_>, _>>()?;
+
+        let int_params =
+            self.int_params
+                .into_iter()
+                .map(|(k, v)| (v.build().map(|v| (Key::IntParam(k), v))))
+                .collect::<Result<Vec<_>, _>>()?;
+
+        let params =
+            self.params
+                .into_iter()
+                .map(|(k, v)| (v.build().map(|v| (Key::Param(k), v))))
+                .collect::<Result<Vec<_>, _>>()?;
+
+        literals.extend(int_params);
+        literals.extend(params);
+
+        if let Some(trie) = self.wildcard {
+            literals.push((Key::Wildcard, trie.build()?));
+        }
+
+        Ok(TrieRouterRecognizer {
+            data: self.data,
+            children: literals
+        })
+    }
+
+    pub fn new() -> TrieRouterRecognizerBuilder<T> {
+        TrieRouterRecognizerBuilder {
+            data: None,
+            literals: HashMap::new(),
+            int_params: HashMap::new(),
+            params: HashMap::new(),
+            wildcard: None
+        }
+    }
+
+    pub fn add(mut self, path: &str, value: T) -> Result<Self, String> {
+        if !path.starts_with("/") {
+            Err("Route must start with '/'.".into())
+        } else {
+            {
+                let path = path.split("/").skip(1).into_iter();
+                self.add_internal(path, value)?;
+            }
+            Ok(self)
+        }
+    }
+
+    fn add_internal<'a, I>(&'a mut self, mut path: I, value: T) -> Result<&mut Self, String>
         where I: ::std::iter::Iterator<Item = &'a str>
     {
         match path.next() {
@@ -149,34 +200,39 @@ impl<T> TrieRouterRecognizer<T> {
                     value: value,
                     trailing: true,
                 });
+                Ok(self)
             },
             None => {
                 self.data = Some(RouteData {
                     value: value,
                     trailing: false,
                 });
+                Ok(self)
             },
             Some(part) => {
 
-                match to_key(part) {
-                    Key::Literal(literal) =>
+                match to_key(part)? {
+                    Key::Literal(literal) => {
                         self.literals
                             .entry(literal)
-                            .or_insert(TrieRouterRecognizer::new())
-                            .add_internal(path, value),
-                    Key::Param(param) =>
+                            .or_insert(TrieRouterRecognizerBuilder::new())
+                            .add_internal(path, value)
+                    },
+                    Key::Param(param) => {
                         self.params
                             .entry(param)
-                            .or_insert(TrieRouterRecognizer::new())
-                            .add_internal(path, value),
-                    Key::IntParam(param) =>
+                            .or_insert(TrieRouterRecognizerBuilder::new())
+                            .add_internal(path, value)
+                    },
+                    Key::IntParam(param) => {
                         self.int_params
                             .entry(param)
-                            .or_insert(TrieRouterRecognizer::new())
-                            .add_internal(path, value),
+                            .or_insert(TrieRouterRecognizerBuilder::new())
+                            .add_internal(path, value)
+                    }
                     Key::Wildcard => {
                         if self.wildcard.is_none() {
-                            self.wildcard = Some(Box::new(TrieRouterRecognizer::new()));
+                            self.wildcard = Some(Box::new(TrieRouterRecognizerBuilder::new()));
                         }
 
                         self.wildcard
@@ -185,7 +241,6 @@ impl<T> TrieRouterRecognizer<T> {
                             .add_internal(path, value)
                     }
                 }
-
             }
         }
     }
@@ -193,28 +248,30 @@ impl<T> TrieRouterRecognizer<T> {
 
 #[test]
 fn root_slash() {
-    let mut router = TrieRouterRecognizer::new();
-    router.add("/", 1);
+    let router =
+        TrieRouterRecognizerBuilder::new()
+        .add("/", 1).unwrap()
+        .build().unwrap();
+
     assert_eq!(router.recognize("/").unwrap(), (&1, vec![]));
     assert_eq!(router.recognize("").unwrap(), (&1, vec![]));
 }
 
-// #[test]
-// fn root_empty() {
-//     let mut router = TrieRouterRecognizer::new();
-//     router.add("", 1);
-//     // should fail in some way
-//     // builder pattern with Result?
-
-//     // assert_eq!(router.recognize("").unwrap(), (&1, vec![]));
-//     // assert_eq!(router.recognize("/"), None);
-// }
+#[test]
+fn root_empty() {
+    match TrieRouterRecognizerBuilder::new().add("", 1) {
+        Err(err) => assert_eq!(err, "Route must start with '/'.".to_string()),
+        Ok(_) => panic!("Routes that doesn't start with '/' should fail.")
+    }
+}
 
 #[test]
 fn trailing_nontrailing() {
-    let mut router = TrieRouterRecognizer::new();
-    router.add("/trailing/", 1);
-    router.add("/non-trailing", 2);
+    let router =
+        TrieRouterRecognizerBuilder::new()
+        .add("/trailing/", 1).unwrap()
+        .add("/non-trailing", 2).unwrap()
+        .build().unwrap();
 
     assert_eq!(router.recognize("/trailing/").unwrap(), (&1, vec![]));
     assert_eq!(router.recognize("/trailing").unwrap(), (&1, vec![]));
@@ -224,9 +281,11 @@ fn trailing_nontrailing() {
 
 #[test]
 fn params() {
-    let mut router = TrieRouterRecognizer::new();
-    router.add("/foo/<bar>", 1);
-    router.add("/foo/<bar>/rall/<snall>", 2);
+    let router =
+        TrieRouterRecognizerBuilder::new()
+        .add("/foo/<bar>", 1).unwrap()
+        .add("/foo/<bar>/rall/<snall>", 2).unwrap()
+        .build().unwrap();
 
     assert_eq!(
         router.recognize("/foo/11").unwrap(),
@@ -238,8 +297,10 @@ fn params() {
 
 #[test]
 fn int_params() {
-    let mut router = TrieRouterRecognizer::new();
-    router.add("/foo/<bar:int>", 1);
+    let router =
+        TrieRouterRecognizerBuilder::new()
+        .add("/foo/<bar:int>", 1).unwrap()
+        .build().unwrap();
 
     assert_eq!(
         router.recognize("/foo/11").unwrap(),
@@ -248,11 +309,13 @@ fn int_params() {
 
 #[test]
 fn multiple_params_on_same_depth() {
-    let mut router = TrieRouterRecognizer::new();
-    router.add("/foo/<foo1>/first", 1);
-    router.add("/foo/<foo2>/second", 2);
-    router.add("/foo/<foo3>/second/<bar1>/third", 3);
-    router.add("/foo/<foo4>/second/<bar2>/forth", 4);
+    let router =
+        TrieRouterRecognizerBuilder::new()
+        .add("/foo/<foo1>/first", 1).unwrap()
+        .add("/foo/<foo2>/second", 2).unwrap()
+        .add("/foo/<foo3>/second/<bar1>/third", 3).unwrap()
+        .add("/foo/<foo4>/second/<bar2>/forth", 4).unwrap()
+        .build().unwrap();
 
     assert_eq!(
         router.recognize("/foo/11/first").unwrap(),
@@ -271,8 +334,10 @@ fn multiple_params_on_same_depth() {
 #[test]
 fn multiple_params_with_same_name() {
     // test to highlight a problem with returning params as map over param name.
-    let mut router = TrieRouterRecognizer::new();
-    router.add("/foo/<foo>/bar/<foo>", 1);
+    let router =
+        TrieRouterRecognizerBuilder::new()
+        .add("/foo/<foo>/bar/<foo>", 1).unwrap()
+        .build().unwrap();
 
     assert_eq!(
         router.recognize("/foo/11/bar/12").unwrap(),
@@ -281,9 +346,11 @@ fn multiple_params_with_same_name() {
 
 #[test]
 fn wildcard() {
-    let mut router = TrieRouterRecognizer::new();
-    router.add("/foo/*", 1);
-    router.add("/foo/*/bar", 2);
+    let router =
+        TrieRouterRecognizerBuilder::new()
+        .add("/foo/*", 1).unwrap()
+        .add("/foo/*/bar", 2).unwrap()
+        .build().unwrap();
 
     assert_eq!(
         router.recognize("/foo/11").unwrap(),
@@ -295,9 +362,11 @@ fn wildcard() {
 
 #[test]
 fn literal_before_params() {
-    let mut router = TrieRouterRecognizer::new();
-    router.add("/foo/literal", 1);
-    router.add("/foo/<param>", 2);
+    let router =
+        TrieRouterRecognizerBuilder::new()
+        .add("/foo/literal", 1).unwrap()
+        .add("/foo/<param>", 2).unwrap()
+        .build().unwrap();
 
     assert_eq!(
         router.recognize("/foo/literal").unwrap(),
