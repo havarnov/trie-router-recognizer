@@ -1,3 +1,10 @@
+#![feature(test)]
+
+#[cfg(test)]
+extern crate test;
+#[cfg(test)]
+extern crate regex;
+
 use std::collections::HashMap;
 
 #[derive(Hash, Eq, PartialEq, Debug)]
@@ -374,4 +381,76 @@ fn literal_before_params() {
     assert_eq!(
         router.recognize("/foo/21").unwrap(),
         (&2, vec![("param".into(), Param::Str("21".into()))]));
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use test::Bencher;
+    use regex::Regex;
+
+    #[bench]
+    fn bench_recognize_literal(b: &mut Bencher) {
+        let router =
+            TrieRouterRecognizerBuilder::new()
+            .add("/foo/literal/", 1).unwrap()
+            .build().unwrap();
+
+        b.iter(|| {
+            router.recognize("/foo/literal");
+        });
+    }
+
+    #[bench]
+    fn bench_literal_regex(b: &mut Bencher) {
+        let re = Regex::new("^/foo/literal(?:/??)$").unwrap();
+
+        b.iter(|| {
+            re.captures("/foo/literal");
+        });
+    }
+
+    #[bench]
+    fn bench_recognize_param(b: &mut Bencher) {
+        let router =
+            TrieRouterRecognizerBuilder::new()
+            .add("/foo/<param>/", 1).unwrap()
+            .build().unwrap();
+
+        b.iter(|| {
+            router.recognize("/foo/PARAM");
+        });
+    }
+
+    #[bench]
+    fn bench_param_regex(b: &mut Bencher) {
+        let re = Regex::new("^/foo/(?P<PARAM>[^/]+)(?:/??)$").unwrap();
+
+        // println!("{:?}", re.clone().captures("/foo/PARAM"));
+
+        b.iter(|| {
+            re.captures("/foo/PARAM");
+        });
+    }
+
+    #[bench]
+    fn bench_recognize_int_param(b: &mut Bencher) {
+        let router =
+            TrieRouterRecognizerBuilder::new()
+            .add("/foo/<param:int>/", 1).unwrap()
+            .build().unwrap();
+
+        b.iter(|| {
+            router.recognize("/foo/12");
+        });
+    }
+
+    #[bench]
+    fn bench_int_param_regex(b: &mut Bencher) {
+        let re = Regex::new("^/foo/(?P<PARAM>[\\d]+)(?:/??)$").unwrap();
+
+        b.iter(|| {
+            re.captures("/foo/12");
+        });
+    }
 }
